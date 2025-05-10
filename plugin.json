@@ -1,0 +1,12 @@
+{
+  "displayName": "DustyMind",
+  "name": "dmind",
+  "description": "A template plugin for Mindustry to get you started quickly.",
+  "version": "0.0.1",
+  "author": "Hirnk",
+  "repo": "Hirnk/DustyMind",
+  "main": "com.hirnk.plugin.RLPlugin",
+  "minGameVersion": "146",
+  "java": true,
+  "hidden": true
+}
