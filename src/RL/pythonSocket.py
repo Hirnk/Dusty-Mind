@@ -18,13 +18,6 @@ def send_command(command_dict):
 
 # Test sending a "place block" command
 if __name__ == "__main__":
-    command = {
-        "command": "place",
-        "x": 10,
-        "y": 15,
-        "block": "conveyor"
-    }
-
        
     response = send_command({"command": "get_blocks"})
     print("Response from server:", response)

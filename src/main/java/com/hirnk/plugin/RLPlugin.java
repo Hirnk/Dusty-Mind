@@ -130,6 +130,16 @@ public class RLPlugin extends Plugin {
         handler.register("bot","Create an agent.", arg -> createBot("RL-Agent #" + agentCounter, Color.sky, String.valueOf(agentCounter++)));
     }
 
+    //observation design
+
+    private JSONArray getMapObservation() {
+        JSONArray array = new JSONArray();
+
+
+
+        return array;
+    }
+
     //action design
 
     private JSONArray getBuildableBlocks() {
