@@ -134,7 +134,7 @@ public class RLPlugin extends Plugin {
 
     private JSONArray getBuildableBlocks() {
         JSONArray array = new JSONArray();
-        tempSeq.selectFrom(Vars.content.blocks(), Block::isVisible);
+        tempSeq.selectFrom(Vars.content.blocks(), Block::isPlaceable);
         array.putAll(tempSeq);
 
         Log.info(array);
