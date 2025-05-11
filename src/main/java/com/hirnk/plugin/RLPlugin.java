@@ -32,10 +32,13 @@ import mindustry.Vars;
 import mindustry.core.NetServer;
 import mindustry.game.EventType;
 import mindustry.game.EventType.PlayerConnect;
+import mindustry.game.Team;
 import mindustry.gen.Player;
 import mindustry.mod.*;
 import mindustry.net.NetConnection;
+import mindustry.type.Item;
 import mindustry.world.Block;
+import mindustry.world.blocks.storage.CoreBlock;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -81,7 +84,13 @@ public class RLPlugin extends Plugin {
 
                 switch (request.getString("command")) {
                     case "get_blocks":
-                        response.put("blocks", getBuildableBlocks());
+                        response.put("map", getBuildableBlocks());
+                        break;
+                    case "get_map":
+                        response.put("map", getMapObservation());
+                        break;
+                    case "resources":
+                        response.put("map", getCoreResources());
                         break;
                 }
 
@@ -100,6 +109,11 @@ public class RLPlugin extends Plugin {
         Events.on(EventType.PlayEvent.class, e -> {
             createBot("RL-Agent #" + agentCounter, Color.sky, String.valueOf(agentCounter++));
             Log.info("Loaded Agent!");
+
+            //temporal
+
+            Vars.state.rules.waves = false;
+            Vars.state.rules.buildSpeedMultiplier = 100f;
         });
     }
 
@@ -133,21 +147,50 @@ public class RLPlugin extends Plugin {
     //observation design
 
     private JSONArray getMapObservation() {
-        JSONArray array = new JSONArray();
+        int height = Vars.world.height();
+        int width = Vars.world.height();
 
+        JSONArray rows = new JSONArray();
 
+        for (int y = 0; y < height; y++) {
+            JSONArray row = new JSONArray();
+            for (int x = 0; x < width; x++) {
+                var tile = Vars.world.tile(x, y);
+                int blockId = 0;
 
-        return array;
+                if (tile != null && tile.block() != null) {
+                    blockId = tile.block().id;
+                }
+
+                row.put(blockId);
+            }
+            rows.put(row);
+        }
+
+        return rows;
     }
 
     //action design
 
-    private JSONArray getBuildableBlocks() {
+    public JSONArray getBuildableBlocks() {
         JSONArray array = new JSONArray();
         tempSeq.selectFrom(Vars.content.blocks(), Block::isPlaceable);
         array.putAll(tempSeq);
 
-        Log.info(array);
+        return array;
+    }
+
+    public JSONArray getCoreResources() {
+        JSONArray array = new JSONArray();
+
+        CoreBlock.CoreBuild core = Vars.state.teams.get(Team.sharded).core();
+
+        if (core != null) {
+            for (Item item : Vars.content.items()) {
+                int amount = core.items.get(item);
+                array.put(amount);
+            }
+        }
 
         return array;
     }
