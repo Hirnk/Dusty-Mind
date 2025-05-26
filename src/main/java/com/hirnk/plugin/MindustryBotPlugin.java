@@ -1,32 +1,8 @@
-/*
- * This file is part of TemplatePlugin. A template plugin for Mindustry to get you started quickly.
- *
- * MIT License
- *
- * Copyright (c) 2024 Xpdustry
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
 package com.hirnk.plugin;
+
 import arc.Events;
 import arc.graphics.Color;
-import arc.util.*;
+import arc.util.Log;
 import mindustry.Vars;
 import mindustry.content.Blocks;
 import mindustry.content.Items;
@@ -34,218 +10,127 @@ import mindustry.content.UnitTypes;
 import mindustry.core.NetServer;
 import mindustry.entities.units.BuildPlan;
 import mindustry.game.EventType;
-import mindustry.game.EventType.PlayerConnect;
 import mindustry.game.Team;
 import mindustry.gen.Call;
 import mindustry.gen.Player;
-import mindustry.mod.*;
+import mindustry.mod.Plugin;
 import mindustry.net.NetConnection;
 import mindustry.world.Block;
 import mindustry.world.Tile;
-import mindustry.world.blocks.distribution.Conveyor;
 import mindustry.world.blocks.production.Drill;
+import mindustry.world.blocks.distribution.Conveyor;
 import mindustry.world.blocks.storage.CoreBlock;
 
-import java.io.*;
-import java.net.*;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class MindustryBotPlugin extends Plugin {
 
-    int socketPort = 7777;
+    private static final String SERVER_IP = "127.0.0.1";
+    private static final int SERVER_PORT = 5555;
 
-    private ServerSocket serverSocket;
-    private Thread serverThread;
+    private Thread client;
     private volatile boolean running = true;
-    private AtomicReference<Player> botPlayer = new AtomicReference<>();
-
-    private int agentCounter;
+    private final AtomicReference<Player> bot = new AtomicReference<>();
 
     @Override
     public void init() {
-
-        // Create the bot player once the server is ready
-
+        Events.on(EventType.ServerLoadEvent.class, e -> startClient());
         Events.on(EventType.PlayEvent.class, e -> {
-            startSocketServer(socketPort);
-
-            createBot("RL-Agent #" + agentCounter, Color.sky, String.valueOf(agentCounter++));
-            Log.info("Loaded Agent!");
-            botPlayer.set(createBot());
-
-            //temporal
-
+            bot.set(createBot("RL-Agent", Color.sky, "RL-IP"));
             Vars.state.rules.waves = false;
             Vars.state.rules.buildSpeedMultiplier = 100f;
             UnitTypes.alpha.buildRange = 2500f;
         });
     }
 
-    private void startSocketServer(int port) {
-        serverThread = new Thread(() -> {
-            try {
-                serverSocket = new ServerSocket(port);
-                Log.info("Java socket server listening on port " + port);
+    private void startClient() {
+        client = new Thread(() -> {
+            try (Socket socket = new Socket(SERVER_IP, SERVER_PORT);
+                 DataInputStream in = new DataInputStream(socket.getInputStream());
+                 DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {
 
-                while (running) {
-                    try (Socket clientSocket = serverSocket.accept()) {
-                        System.out.println("Java client connected");
+                Log.info("Connected to Python server");
 
-                        DataInputStream in = new DataInputStream(clientSocket.getInputStream());
-                        DataOutputStream out = new DataOutputStream(clientSocket.getOutputStream());
+                while (running && !socket.isClosed()) {
+                    int len = in.readInt();
+                    byte[] msg = new byte[len];
+                    in.readFully(msg);
 
-                        while (running && !clientSocket.isClosed()) {
-                            // receive action data from client
-                            int actionLen = in.readInt();
-                            byte[] actionBytes = new byte[actionLen];
-                            in.readFully(actionBytes);
+                    if (len == 16) processAction(msg);
+                    // ignore other messages
 
-                            processAction(actionBytes);
-
-                            // send observation data back to client
-                            byte[] obsBytes = getObservationBytes();
-                            out.writeInt(obsBytes.length);
-                            out.write(obsBytes);
-                            out.flush();
-                        }
-                    } catch (IOException e) {
-                        System.err.println("Client disconnected or error: " + e.getMessage());
-                    }
+                    byte[] obs = getObservation();
+                    out.writeInt(obs.length);
+                    out.write(obs);
+                    out.flush();
                 }
             } catch (IOException e) {
-                System.err.println("Socket server error: " + e.getMessage());
+                Log.err("Socket error: " + e.getMessage());
             }
         });
-        serverThread.setDaemon(true);
-        serverThread.start();
+        client.start();
     }
 
-    // Agent - Action
+    private void processAction(byte[] data) {
+        Player p = bot.get();
+        if (p == null) return;
 
-    private void processAction(byte[] actionBytes) {
-        // Example: actionBytes could encode tile x,y and action type
-        // Decode it (e.g. ByteBuffer), then run commands to place blocks or issue commands
+        ByteBuffer buf = ByteBuffer.wrap(data);
+        int type = buf.getInt(), x = buf.getInt(), y = buf.getInt(), rot = buf.getInt();
 
-        if (botPlayer.get() == null) return;
+        Block b = switch (type) {
+            case 0 -> Blocks.mechanicalDrill;
+            case 1 -> Blocks.conveyor;
+            default -> null;
+        };
+        if (b == null) return;
 
-        ByteBuffer buffer = ByteBuffer.wrap(actionBytes);
-        int actionType = buffer.getInt();  // e.g., 0=build drill,1=build conveyor
-        int tileX = buffer.getInt();
-        int tileY = buffer.getInt();
-        int rotation = buffer.getInt();
-
-        Block block;
-
-        switch (actionType) {
-            case 0 -> block = Blocks.mechanicalDrill;
-            case 1 -> block = Blocks.conveyor;
-
-            default -> {
-                return;
-            }
-        }
-
-        Player bot = botPlayer.get();
-        if (bot == null || block == null) return;
-
-        BuildPlan plan = new BuildPlan(tileX, tileY, rotation, block);
-
-        bot.unit().plans().add(plan);
-
-        Call.sendChatMessage("Bot placing action " + actionType + " at " + tileX + "," + tileY);
+        p.unit().plans().add(new BuildPlan(x, y, rot, b));
+        Call.sendChatMessage("Bot placed " + type + " at " + x + "," + y);
     }
 
-    private byte[] getObservationBytes() {
-        int width = 400, height = 400, layers = 4;
-
-        // one-hot encoding
-        byte[][][] map = new byte[layers][width][height];
+    private byte[] getObservation() {
+        int w = 400, h = 400, l = 5;
+        byte[][][] map = new byte[l][w][h];
 
         for (Tile t : Vars.world.tiles) {
             Block b = t.block();
-
             if (b instanceof CoreBlock) map[0][t.x][t.y] = 1;
             else if (b instanceof Drill) map[1][t.x][t.y] = 1;
             else if (b instanceof Conveyor) map[2][t.x][t.y] = 1;
             else if (t.solid()) map[3][t.x][t.y] = 1;
+
+            map[4][t.x][t.y] = t.build != null ? (byte) t.build.rotation() : 0;
         }
 
-        ByteBuffer buffer = ByteBuffer.allocate(layers * width * height + 4);
-        buffer.order(ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer buf = ByteBuffer.allocate(l * w * h + 4).order(ByteOrder.LITTLE_ENDIAN);
+        for (int i = 0; i < l; i++)
+            for (int x = 0; x < w; x++)
+                for (int y = 0; y < h; y++)
+                    buf.put(map[i][x][y]);
 
-        for (int l = 0; l < layers; l++) {
-            for (int x = 0; x < width; x++) {
-                for (int y = 0; y < height; y++) {
-                    buffer.put(map[l][x][y]);
-                }
-            }
-        }
+        buf.putFloat(Vars.state.teams.cores(Team.sharded).first().items.get(Items.copper));
 
-        // Add core copper amount
-        float copper = Vars.state.teams.cores(Team.sharded).first().items.get(Items.copper);
-        buffer.putFloat(copper);
-
-        return buffer.array();
+        return buf.array();
     }
 
-    public void addPlayer(Player p) {
-        p.add();
-        NetServer.connectConfirm(p);
-        Events.fire(new PlayerConnect(p));
-    }
-
-    public Player createBot() {
-        return createBot("Agent#" + agentCounter, Color.sky, String.valueOf(agentCounter++));
-    }
-
-    public Player createBot(String name, Color color, String ip) {
+    private Player createBot(String name, Color color, String ip) {
         Player p = Player.create();
-
         p.name = name;
         p.color = color;
         p.con = new NetConnection(ip) {
-            @Override
-            public void send(Object object, boolean reliable) {
-            }
-
-            @Override
-            public void close() {
-            }
+            @Override public void send(Object o, boolean r) { }
+            @Override public void close() { }
         };
-
-        addPlayer(p);
-
+        p.add();
+        NetServer.connectConfirm(p);
+        Events.fire(new EventType.PlayerConnect(p));
         return p;
-    }
-
-    @Override
-    public void registerClientCommands(CommandHandler handler) {
-        handler.<Player>register("bot", "Create an agent.", arg -> createBot("RL-Agent #" + agentCounter, Color.sky, String.valueOf(agentCounter++)));
-        handler.<Player>register("endRL", "Stop the bot socket server", args -> {
-            running = false;
-            try {
-                if (serverSocket != null) serverSocket.close();
-            } catch (IOException e) {
-                System.err.println("Client disconnected or error: " + e.getMessage());
-            }
-            Call.sendChatMessage("Bot server stopped.");
-        });
-    }
-}
-
-class BotAction {
-    public final Player bot;
-    public final Block block;
-    public final int tileX, tileY;
-    public final int rotation;
-
-    public BotAction(Player bot, Block block, int tileX, int tileY, int rotation) {
-        this.bot = bot;
-        this.block = block;
-        this.tileX = tileX;
-        this.tileY = tileY;
-        this.rotation = rotation;
     }
 }

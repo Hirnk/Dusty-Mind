@@ -15,7 +15,7 @@ class MindustryEnv(gym.Env):
         super().__init__()
 
         self.observation_space = spaces.Dict({
-            "map" : spaces.Box(0, 1, (4, 400, 400)),
+            "map" : spaces.Box(0, 1, (5, 400, 400), dtype=np.uint8),
             "core_items": spaces.Box(low=0, high=4000, shape=(1,), dtype=np.int32),
         })
 
@@ -46,7 +46,24 @@ class MindustryEnv(gym.Env):
         self.client_socket.sendall(length + data)
 
     def _send_action(self, action: int):
-        self._send_command(f"ACTION:{action}")
+        width = 400
+        total_actions = 2 * (width * width)  # 2 types of blocks
+
+        assert 0 <= action < total_actions, f"Invalid action {action}"
+
+        action_type = action // (width * width)
+        index = action % (width * width)
+        x = index // width
+        y = index % width
+        rotation = 0  # You can later randomize or evolve this
+
+        data = struct.pack('<4i', action_type, x, y, rotation)
+        self._send_bytes(data)
+
+    def _send_bytes(self, data: bytes):
+        length = struct.pack('<I', len(data))
+        self.client_socket.sendall(length + data)
+
 
     def _recv_exact(self, num_bytes):
         data = b''
@@ -75,12 +92,12 @@ class MindustryEnv(gym.Env):
         # Custom logic, e.g., copper at core
         return 0.0
 
-    def _receive_state(sock):
+    def _receive_state(self):
         width, height, channels = 400, 400, 5
         map_bytes = width * height * channels  # 1 byte per cell
         total_bytes = map_bytes + 4  # 4 bytes for float32 copper
 
-        data = sock._recv_exact(total_bytes)
+        data = self._recv_exact(total_bytes)
 
         # Decode map as uint8
         obs = np.frombuffer(data[:map_bytes], dtype=np.uint8).reshape((channels, width, height))
@@ -90,7 +107,7 @@ class MindustryEnv(gym.Env):
         copper = struct.unpack('<f', data[map_bytes:])[0]
 
         return {
-            "map": obs,          # shape (5, 400, 400)
-            "copper": copper         # float
+            "map": obs,
+            "core_items": np.array([copper], dtype=np.int32)
         }
 
