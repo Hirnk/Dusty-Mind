@@ -5,7 +5,7 @@
   "version": "0.0.1",
   "author": "Hirnk",
   "repo": "Hirnk/DustyMind",
-  "main": "com.hirnk.plugin.RLPlugin",
+  "main": "com.hirnk.plugin.MindustryBotPlugin",
   "minGameVersion": "146",
   "java": true,
   "hidden": true

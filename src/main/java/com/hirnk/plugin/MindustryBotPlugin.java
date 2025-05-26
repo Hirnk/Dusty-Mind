@@ -34,15 +34,24 @@ public class MindustryBotPlugin extends Plugin {
     private static final String SERVER_IP = "127.0.0.1";
     private static final int SERVER_PORT = 5555;
 
+    private DataOutputStream out;
     private Thread client;
-    private volatile boolean running = true;
+    private final boolean running = true;
+
+    // Single bot reference
     private final AtomicReference<Player> bot = new AtomicReference<>();
 
     @Override
     public void init() {
         Events.on(EventType.ServerLoadEvent.class, e -> startClient());
+
         Events.on(EventType.PlayEvent.class, e -> {
-            bot.set(createBot("RL-Agent", Color.sky, "RL-IP"));
+            // Create and store the single bot once per game start
+            if (bot.get() == null) {
+                Player newBot = createBot("RL-Agent", Color.sky, "RL-IP");
+                bot.set(newBot);
+            }
+
             Vars.state.rules.waves = false;
             Vars.state.rules.buildSpeedMultiplier = 100f;
             UnitTypes.alpha.buildRange = 2500f;
@@ -53,7 +62,9 @@ public class MindustryBotPlugin extends Plugin {
         client = new Thread(() -> {
             try (Socket socket = new Socket(SERVER_IP, SERVER_PORT);
                  DataInputStream in = new DataInputStream(socket.getInputStream());
-                 DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {
+                 DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
+
+                out = dos;
 
                 Log.info("Connected to Python server");
 
@@ -63,7 +74,6 @@ public class MindustryBotPlugin extends Plugin {
                     in.readFully(msg);
 
                     if (len == 16) processAction(msg);
-                    // ignore other messages
 
                     byte[] obs = getObservation();
                     out.writeInt(obs.length);
