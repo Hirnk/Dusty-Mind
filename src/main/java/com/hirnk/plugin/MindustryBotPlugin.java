@@ -12,14 +12,16 @@ import mindustry.net.NetConnection;
 public class MindustryBotPlugin extends Plugin {
 
     private static final String SERVER_IP = "127.0.0.1";
-    private static final int SERVER_PORT = 7766;
+    private static final int SERVER_PORT = 7766; // Verified match with rl_agent.py
 
     @Override
     public void init() {
         Events.on(EventType.PlayEvent.class, e -> {
-
             Vars.state.rules.waves = false;
             Vars.state.rules.infiniteResources = true;
+            
+            // Example hook to create the bot when a game starts
+            createBot("DustyBot", Color.blue, SERVER_IP);
         });
     }
 
