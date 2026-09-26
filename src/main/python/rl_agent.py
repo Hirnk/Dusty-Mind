@@ -12,15 +12,14 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 import numpy as np
 
 HOST = "127.0.0.1"
-PORT = "6655"
+PORT = 7766  # Changed to integer and matched to Java plugin port
 
 OBS_CHANNELS = 5
 OBS_MAP_HEIGHT = 400
 OBS_MAP_WIDTH = 400
-OBS_SCALAR_FEATURES = 5
+OBS_SCALAR_FEATURES = 1  # Reduced to 1 to match the single 'copper_amount' feature parsed
 
 NUM_BUILD_TYPES = 3 # No-op, conveyor, drill
-
 
 class CustomCNN(nn.Module):
     def __init__(self, observation_space: gym.spaces.Dict, feature_dim: int = 256):
@@ -39,7 +38,6 @@ class CustomCNN(nn.Module):
             nn.Flatten()
         )
 
-        # obtain the output shape of the CNN
         with torch.no_grad():
             dummy_tensor = torch.as_tensor(observation_space["map"].sample()[None]).float()
             n_flatten = self.cnn_map(dummy_tensor).shape[1]
@@ -54,7 +52,6 @@ class CustomCNN(nn.Module):
         scalar_obs = observations["scalars"]
 
         cnn_out = self.cnn_map(map_obs)
-
         fc_in = torch.cat((cnn_out, scalar_obs), dim=1)
 
         return self.linear(fc_in)
@@ -93,7 +90,6 @@ class MindustryEnv(gym.Env):
     def _send_data(self, data):
         try:
             self._dump(data)
-
         except (socket.error, ConnectionResetError) as e:
             print(f"Socket send error: {e}. Reconnecting...")
             self._reconnect()
@@ -107,11 +103,9 @@ class MindustryEnv(gym.Env):
                 if not chunk:
                     raise ConnectionResetError("Client disconnected or sent empty data!")
                 buffer += chunk
-
             except socket.timeout:
                 print("Socket receive timeout. Waiting for data...")
                 continue
-
             except (socket.error, ConnectionResetError) as e:
                 print(f"Socket receive error: {e}: Reconnecting...")
                 self._reconnect()
@@ -122,19 +116,16 @@ class MindustryEnv(gym.Env):
 
     def _reconnect(self):
         print("Attempting to reconnect...")
-
         if self.conn:
             try:
                 self.conn.close()
             except socket.error as e:
                 print(f"Error closing old connection: {e}")
-
         if self.socket:
             try:
                 self.socket.close()
             except socket.error as e:
                 print(f"Error closing old socket: {e}")
-
         self._connect_socket()
 
     def _parse_observation(self, raw_obs_data):
@@ -154,7 +145,7 @@ class MindustryEnv(gym.Env):
             done = raw_obs_data.get("done", False)
             reward = raw_obs_data.get("reward", 0.0)
 
-            return obs, reward, done, False
+            return obs, reward, done, False, {}
 
         except KeyError as e:
             print(f"Error parsing observation: Missing key {e}. Raw data {raw_obs_data}")
@@ -166,7 +157,6 @@ class MindustryEnv(gym.Env):
     def step(self, action):
         build_type = action[0]
         rotation = action[1]
-
         action_data = {}
 
         if build_type == 0:
@@ -187,9 +177,8 @@ class MindustryEnv(gym.Env):
             if received_data is None:
                 print("Failed to receive data, retrying...")
 
-        obs, reward, done, truncated = self._parse_observation(received_data)
-
-        return obs, reward, done, truncated
+        obs, reward, done, truncated, info = self._parse_observation(received_data)
+        return obs, reward, done, truncated, info
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -202,9 +191,8 @@ class MindustryEnv(gym.Env):
             if received_data is None:
                 print("Failed to receive data, retrying...")
 
-        obs, _, _, _ = self._parse_observation(received_data)
-
-        return obs
+        obs, reward, done, truncated, info = self._parse_observation(received_data)
+        return obs, info
 
     def close(self):
         print("Closing socket connection.")
@@ -212,8 +200,6 @@ class MindustryEnv(gym.Env):
             self.conn.close()
         if self.socket:
             self.socket.close()
-
-# Training loop
 
 if __name__ == "__main__":
     env = DummyVecEnv([lambda: MindustryEnv(HOST, PORT)])
@@ -240,25 +226,14 @@ if __name__ == "__main__":
 
     print("PPO Agent created, Starting training...")
 
-    # Train the agent
-
     try:
         model.learn(total_timesteps=1000000, log_interval=10, progress_bar=True)
-
     except KeyboardInterrupt:
         print("Training interrupted. Saving model...")
-
     finally:
         model.save("ppo_mindustry_agent")
         print("Model saved as ppo_mindustry_agent.zip")
         env.close()
-
         print("Environment closed.")
 
-
     print("Training complete.")
-
-
-
-
-
